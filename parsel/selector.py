@@ -554,6 +554,7 @@ class Selector:
 
     __slots__ = [
         "__weakref__",
+        "_cached_text_root",
         "_expr",
         "_huge_tree",
         "_text",
@@ -636,6 +637,7 @@ class Selector:
         self._expr = _expr
         self._huge_tree = huge_tree
         self._text = text
+        self._cached_text_root: etree._Element | None = None
 
     def __getstate__(self) -> Any:
         raise TypeError("can't pickle Selector objects")
@@ -657,6 +659,17 @@ class Selector:
             base_url=base_url,
             huge_tree=huge_tree,
         )
+
+    def _get_text_root(self) -> etree._Element:
+        """Return the parsed tree for a ``text``-type selector.
+
+        The tree is parsed on the first query and cached on the selector
+        itself, so repeated queries on the same object reuse the same tree
+        and node removals stay visible to subsequent queries.
+        """
+        if self._cached_text_root is None:
+            self._cached_text_root = self._get_root(self._text or "", type_="html")
+        return self._cached_text_root
 
     def _json_data(self) -> Any:
         if isinstance(self.root, str):
@@ -784,7 +797,7 @@ class Selector:
                     )
                 return typing.cast("SelectorList[Self]", self.selectorlist_cls([]))
         else:
-            root = self._get_root(self._text or "", type_="html")
+            root = self._get_text_root()
 
         nsp = dict(self.namespaces)
         if namespaces is not None:

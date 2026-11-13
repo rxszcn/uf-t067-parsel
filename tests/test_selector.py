@@ -1027,6 +1027,71 @@ class TestSelector:
 
         assert sel.xpath("//b/text()").getall() == ["1"]
 
+    def test_text_type_root_parsed_once(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Repeated queries on the same text-type selector reuse the tree
+        parsed on the first query; a new selector object parses again."""
+        calls: list[None] = []
+        original_create_root_node = selector_module.create_root_node
+
+        def counting_create_root_node(*args: Any, **kwargs: Any) -> Any:
+            calls.append(None)
+            return original_create_root_node(*args, **kwargs)
+
+        monkeypatch.setattr(
+            selector_module, "create_root_node", counting_create_root_node
+        )
+        sel = self.sscls(text="<ul><li>1</li><li>2</li></ul>", type="text")
+        assert sel.css("li::text").getall() == ["1", "2"]
+        assert sel.xpath("//li/text()").getall() == ["1", "2"]
+        sel.css("li")
+        assert len(calls) == 1
+
+        other = self.sscls(text="<ul><li>3</li></ul>", type="text")
+        assert other.css("li::text").getall() == ["3"]
+        assert len(calls) == 2
+
+    def test_text_type_drop_visible_across_queries(self) -> None:
+        """Nodes dropped from the cached tree of a text-type selector stay
+        dropped for subsequent queries on the same selector."""
+        sel = self.sscls(
+            text="<html><body><ul><li>1</li><li>2</li><li>3</li></ul></body></html>",
+            type="text",
+        )
+        assert sel.css("li::text").getall() == ["1", "2", "3"]
+        sel.css("li")[0].drop()
+        assert sel.css("li::text").getall() == ["2", "3"]
+        sel.css("li").drop()
+        assert sel.css("li") == []
+
+    def test_json_string_subselector_text_root_cached(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Text-type subselectors created from JSON string values share the
+        same parse-once caching and drop visibility."""
+        calls: list[None] = []
+        original_create_root_node = selector_module.create_root_node
+
+        def counting_create_root_node(*args: Any, **kwargs: Any) -> Any:
+            calls.append(None)
+            return original_create_root_node(*args, **kwargs)
+
+        monkeypatch.setattr(
+            selector_module, "create_root_node", counting_create_root_node
+        )
+        sel = self.sscls(
+            text='{"html": "<ul><li>1</li><li>2</li></ul>"}', type="json"
+        )
+        sub = sel.jmespath("html")[0]
+        assert sub.type == "text"
+        assert sub.css("li::text").getall() == ["1", "2"]
+        sub.xpath("//li")
+        assert len(calls) == 1
+        sub.css("li")[0].drop()
+        assert sub.css("li::text").getall() == ["2"]
+        assert len(calls) == 1
+
     def test_deep_nesting(self) -> None:
         content = """
         <html>
@@ -1437,6 +1502,15 @@ class TestSelectorBytes(TestSelector):
         pass
 
     def test_text_and_root_warning(self) -> None:
+        pass
+
+    def test_text_type_root_parsed_once(self) -> None:
+        pass
+
+    def test_text_type_drop_visible_across_queries(self) -> None:
+        pass
+
+    def test_json_string_subselector_text_root_cached(self) -> None:
         pass
 
     def test_check_text_argument_type(self) -> None:
